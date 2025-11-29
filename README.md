@@ -1,4 +1,4 @@
-# Research_gpt 🔒
+# Research_gpt
 
 An opensource Local RAG-based GPT assistant for **maximum privacy**. You have the ultimate control of your data.
 
