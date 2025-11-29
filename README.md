@@ -23,11 +23,6 @@ An Open-source, **Interconnected Local server-based GPT assistant** for **maximu
   <img src="https://github.com/user-attachments/assets/68989f8f-2dfb-4051-80ab-5c9ad90956b2" style="height: 370px; flex: 1; object-fit: contain;">
 </div>
 
-### Sample Outputs
-<img width="1914" height="874" alt="Screenshot 2025-11-29 194854-modified" src="https://github.com/user-attachments/assets/4afea833-30e2-470e-8269-af81d153e232" />
-
-<img width="1912" height="905" alt="Screenshot 2025-11-29 194917-modified" src="https://github.com/user-attachments/assets/01f619b3-ac06-45c9-aea2-9076b372a2fc" />
-
 ## 📦 Installation
 
 ### Prerequisites
@@ -76,6 +71,10 @@ http://localhost:8000
 ```
 
 That's it! You're ready to use Research_gpt.
+### Sample Outputs
+<img width="1914" height="874" alt="Screenshot 2025-11-29 194854-modified" src="https://github.com/user-attachments/assets/4afea833-30e2-470e-8269-af81d153e232" />
+
+<img width="1912" height="905" alt="Screenshot 2025-11-29 194917-modified" src="https://github.com/user-attachments/assets/01f619b3-ac06-45c9-aea2-9076b372a2fc" />
 
 ## 🔧 Advanced Configuration
 
