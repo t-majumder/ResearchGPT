@@ -13,7 +13,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter,TokenTextSpl
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
-from helper_functions.helpers import get_base64_of_background_image, get_context, format_message_content, process_latex
+from utils.helpers import get_base64_of_background_image, get_context, format_message_content, process_latex
 import yaml
 
 #------------------------------------------------------------------------------
@@ -578,3 +578,4 @@ if user_query:
         st.rerun()
     else:
         st.error("Please vectorize the PDFs first using the 'Vectorize PDFs' button in the sidebar.")
+
