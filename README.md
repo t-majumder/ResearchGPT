@@ -30,9 +30,9 @@ An Open-source, **Interconnected Local server-based GPT assistant** for **maximu
 - Docker installed on your system
 - A Grok API account (free)
 
-### Step 1: Get Your Grok API Key
+### Step 1: Get Your Groq API Key
 
-1. Create a Grok account at [Grok AI](https://grok.x.ai)
+1. Create a Grok account at [Groq AI]([https://grok.x.ai](https://console.groq.com/keys))
 2. Generate your API key from the dashboard
 
 ### Step 2: Configure Environment Variables
