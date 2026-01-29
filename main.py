@@ -7,7 +7,8 @@ import tempfile
 import html
 from datetime import datetime
 from langchain_groq import ChatGroq
-from langchain.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter,TokenTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -15,6 +16,10 @@ from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 from utils.helpers import get_base64_of_background_image, get_context, format_message_content, process_latex
 import yaml
+
+# Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 #------------------------------------------------------------------------------
 # Load environment variables
@@ -44,15 +49,42 @@ AVAILABLE_MODELS = {
     "Qwen3 32B": "qwen/qwen3-32b",
     "Kimi K2 Instruct": "moonshotai/kimi-k2-instruct",
     "GPT-OSS 120B": "openai/gpt-oss-120b",
-    "Llama 3.3 70B": "llama-3.3-70b-versatile"
+    "Llama 3.3 70B": "llama-3.3-70b-versatile",
+    "Gemma3 1B (Ollama)": "ollama:gemma3:1b",
+    "Qwen3 4B": "ollama:qwen3:4b",
 }
 
-# Prompt Template
-PROMPT_TEMPLATE = '''
+# Routing Prompt - decides if retrieval is needed
+ROUTING_PROMPT = '''
+You are a routing assistant. Your job is to determine if a question requires retrieving information from documents or if it can be answered directly.
+
+Analyze the question and respond with ONLY "RETRIEVE" or "DIRECT" based on these rules:
+
+RETRIEVE if:
+- The question asks about specific content, data, or facts from documents
+- The question requires detailed information that would be in research papers or PDFs
+- The question asks to explain, summarize, or analyze document content
+- The question mentions specific topics that require document context
+- The question asks about mathematical derivations, formulas, or technical details from papers
+- The question is asking "what does the paper say about..."
+
+DIRECT if:
+- The question is a general greeting (hi, hello, how are you)
+- The question asks about your capabilities or who you are
+- The question is general knowledge that doesn't require specific document content
+- The question is a follow-up clarification that doesn't need new document retrieval
+- The question is asking for general explanations of well-known concepts
+
+Question: {question}
+
+Response (RETRIEVE or DIRECT):'''
+
+# Main Prompt Template for answering with documents
+PROMPT_TEMPLATE_WITH_DOCS = '''
 You are Helpful assistant named ResearchGPT. You are given the following extracted parts of a long document, chat history, and a question. Provide a conversational answer based on the context provided and previous conversation.
 Basically, you are An expert in scientific research papers. Use the context to answer the question as accurately as possible.
 Your knowledge is like an university professor with expertise in research papers. Who explains everything clearly. And if you are asked to do any math you always provide the mathematical equations in latex format.
-Yor solution Generation Format: 
+Your solution Generation Format: 
 Step1: Give all the necessary definitions needed. 
 Step2: Explain the solution step by step in detail. If mathematical equations are there then try to derive them step by step. As you are a high level professor.
 Always format mathematical equations in LaTeX format.
@@ -62,6 +94,17 @@ Chat History: {chat_history}
 Context: {context}
 Question: {question}
 Answer: '''
+
+# Prompt Template for answering without documents
+PROMPT_TEMPLATE_WITHOUT_DOCS = '''
+You are ResearchGPT, a helpful AI assistant specialized in research and scientific topics.
+You can engage in general conversation and answer questions based on your knowledge.
+When answering, be conversational and helpful.
+
+Chat History: {chat_history}
+Question: {question}
+Answer: '''
+
 #------------------------------------------------------------------------------
 
 # Page Configuration
@@ -94,7 +137,12 @@ st.markdown("""
 # Model Initialization
 llm_instances = {}
 for model_name, model_id in AVAILABLE_MODELS.items():
-    llm_instances[model_name] = ChatGroq(model=model_id, api_key=groq_api_key)
+    if model_id.startswith("ollama:"):
+        # Extract the actual model name after "ollama:"
+        ollama_model = model_id.split("ollama:")[1]
+        llm_instances[model_name] = ChatOllama(model=ollama_model)
+    else:
+        llm_instances[model_name] = ChatGroq(model=model_id, api_key=groq_api_key)
 
 #------------------------------------------------------------------------------
 class VectorDB:
@@ -103,24 +151,89 @@ class VectorDB:
         self.db_path = db_path
         self.embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         self.faiss_db = None
+        self.vectorized_files = set()  # Track which files are vectorized
+        
+    def get_pdf_files(self):
+        """Get list of PDF files in the directory"""
+        if not os.path.exists(self.pdfs_directory):
+            os.makedirs(self.pdfs_directory)
+            return []
+        
+        return [f for f in os.listdir(self.pdfs_directory) if f.endswith(".pdf")]
 
-    def process_pdfs(self, additional_pdf_paths=None):
+    def process_pdfs(self, additional_pdf_paths=None, force_rebuild=False):
         """Process PDFs including optional uploaded PDFs"""
-        documents = self.load_pdfs()
-
-        # Add uploaded PDFs if provided
-        if additional_pdf_paths:
-            for pdf_path in additional_pdf_paths:
-                if os.path.exists(pdf_path):
-                    loader = PDFPlumberLoader(pdf_path)
-                    uploaded_docs = loader.load()
-                    documents.extend(uploaded_docs)
-
-        text_chunks = self.create_chunks(documents)
-        self.faiss_db = FAISS.from_documents(text_chunks, self.embeddings)
-        os.makedirs(self.db_path, exist_ok=True)
-        self.faiss_db.save_local(self.db_path)
-        return self.faiss_db
+        try:
+            # Check if we need to rebuild
+            current_files = set(self.get_pdf_files())
+            
+            # Load existing database if available and not forcing rebuild
+            if not force_rebuild and os.path.exists(os.path.join(self.db_path, 'index.faiss')):
+                try:
+                    self.faiss_db = FAISS.load_local(
+                        self.db_path, 
+                        self.embeddings, 
+                        allow_dangerous_deserialization=True
+                    )
+                    
+                    # Check if we have new files to add
+                    if additional_pdf_paths or current_files != self.vectorized_files:
+                        documents = []
+                        
+                        # Add new PDFs from directory
+                        new_files = current_files - self.vectorized_files
+                        for filename in new_files:
+                            file_path = os.path.join(self.pdfs_directory, filename)
+                            loader = PDFPlumberLoader(file_path)
+                            docs = loader.load()
+                            documents.extend(docs)
+                        
+                        # Add uploaded PDFs
+                        if additional_pdf_paths:
+                            for pdf_path in additional_pdf_paths:
+                                if os.path.exists(pdf_path):
+                                    loader = PDFPlumberLoader(pdf_path)
+                                    docs = loader.load()
+                                    documents.extend(docs)
+                        
+                        if documents:
+                            # Create chunks and add to existing database
+                            text_chunks = self.create_chunks(documents)
+                            self.faiss_db.add_documents(text_chunks)
+                            self.faiss_db.save_local(self.db_path)
+                            self.vectorized_files.update(current_files)
+                    
+                    return self.faiss_db
+                except Exception as e:
+                    st.warning(f"Could not load existing database: {str(e)}. Rebuilding...")
+                    force_rebuild = True
+            
+            # Build from scratch
+            documents = self.load_pdfs()
+            
+            # Add uploaded PDFs if provided
+            if additional_pdf_paths:
+                for pdf_path in additional_pdf_paths:
+                    if os.path.exists(pdf_path):
+                        loader = PDFPlumberLoader(pdf_path)
+                        uploaded_docs = loader.load()
+                        documents.extend(uploaded_docs)
+            
+            if not documents:
+                st.warning("No documents found to vectorize!")
+                return None
+                
+            text_chunks = self.create_chunks(documents)
+            self.faiss_db = FAISS.from_documents(text_chunks, self.embeddings)
+            os.makedirs(self.db_path, exist_ok=True)
+            self.faiss_db.save_local(self.db_path)
+            self.vectorized_files = current_files
+            
+            return self.faiss_db
+            
+        except Exception as e:
+            st.error(f"Error processing PDFs: {str(e)}")
+            return None
 
     def load_pdfs(self):
         """Load PDFs from the pdfs directory"""
@@ -132,9 +245,12 @@ class VectorDB:
         for filename in os.listdir(self.pdfs_directory):
             if filename.endswith(".pdf"):
                 file_path = os.path.join(self.pdfs_directory, filename)
-                loader = PDFPlumberLoader(file_path)
-                doc = loader.load()
-                documents.extend(doc)
+                try:
+                    loader = PDFPlumberLoader(file_path)
+                    doc = loader.load()
+                    documents.extend(doc)
+                except Exception as e:
+                    st.warning(f"Could not load {filename}: {str(e)}")
         return documents
 
     def create_chunks(self, documents):
@@ -147,43 +263,111 @@ class VectorDB:
         return text_splitter.split_documents(documents)
 
     def get_retriever(self):
+        """Get retriever, loading database if not already loaded"""
         if not self.faiss_db:
             if os.path.exists(os.path.join(self.db_path, 'index.faiss')):
-                self.faiss_db = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
+                try:
+                    self.faiss_db = FAISS.load_local(
+                        self.db_path, 
+                        self.embeddings, 
+                        allow_dangerous_deserialization=True
+                    )
+                    # Update vectorized files tracking
+                    self.vectorized_files = set(self.get_pdf_files())
+                except Exception as e:
+                    st.error(f"Error loading vector database: {str(e)}")
+                    return None
             else:
-                self.faiss_db = self.process_pdfs()
+                return None
+        
         return self.faiss_db.as_retriever(search_type=SEARCH_TYPE, search_kwargs={"k": TOP_K_RESULTS})
+    
+    def is_db_loaded(self):
+        """Check if database is loaded and ready"""
+        return self.faiss_db is not None
 
 vector_db = VectorDB()
+
+# Initialize vector database on startup if PDFs exist
+if os.path.exists(os.path.join(DB_PATH, 'index.faiss')):
+    try:
+        vector_db.faiss_db = FAISS.load_local(
+            DB_PATH, 
+            vector_db.embeddings, 
+            allow_dangerous_deserialization=True
+        )
+        vector_db.vectorized_files = set(vector_db.get_pdf_files())
+    except Exception as e:
+        st.warning(f"Could not load existing database on startup: {str(e)}")
+
 #------------------------------------------------------------------------------
 # Helpers for Chat Interface
+
+def decide_retrieval(query, model):
+    """
+    Use the model to decide if retrieval is needed for the query
+    Returns: 'RETRIEVE' or 'DIRECT'
+    """
+    try:
+        routing_prompt = ChatPromptTemplate.from_template(ROUTING_PROMPT)
+        chain = routing_prompt | model
+        
+        result = chain.invoke({"question": query})
+        
+        # Extract the decision
+        if hasattr(result, 'content'):
+            decision = result.content.strip().upper()
+        else:
+            decision = str(result).strip().upper()
+        
+        # Ensure we only return valid decisions
+        if 'RETRIEVE' in decision:
+            return 'RETRIEVE'
+        elif 'DIRECT' in decision:
+            return 'DIRECT'
+        else:
+            # Default to RETRIEVE if unclear
+            return 'RETRIEVE'
+            
+    except Exception as e:
+        st.warning(f"Error in routing decision: {str(e)}. Defaulting to RETRIEVE.")
+        return 'RETRIEVE'
+
+
 def retrieve_docs(query):
+    """Retrieve relevant documents for the query"""
     retriever = vector_db.get_retriever()
+    
+    if retriever is None:
+        return []
 
-    # We need similarity scores → use similarity_search_with_score()
-    if hasattr(vector_db.faiss_db, "similarity_search_with_score"):
-        docs_with_scores = vector_db.faiss_db.similarity_search_with_score(query, TOP_K_RESULTS)
+    try:
+        # Use similarity_search_with_score for FAISS
+        if hasattr(vector_db.faiss_db, "similarity_search_with_score"):
+            docs_with_scores = vector_db.faiss_db.similarity_search_with_score(query, k=TOP_K_RESULTS)
+            
+            # Filter based on threshold (note: FAISS uses distance, lower is better)
+            # For L2 distance, we might want to invert the logic or adjust threshold
+            filtered_docs = [doc for doc, score in docs_with_scores if score >= MIN_SIMILARITY]
+            
+            # If no document meets threshold, return all retrieved docs
+            if not filtered_docs and docs_with_scores:
+                filtered_docs = [doc for doc, score in docs_with_scores]
+            
+            return filtered_docs
 
-        # Filter based on threshold
-        filtered_docs = [doc for doc, score in docs_with_scores if score >= MIN_SIMILARITY]
+        # Fallback for non-FAISS retrievers
+        if hasattr(retriever, 'get_relevant_documents'):
+            return retriever.get_relevant_documents(query)
 
-        # If no document meets threshold → return empty list
-        if not filtered_docs:
-            return []
+        if hasattr(retriever, 'invoke'):
+            return retriever.invoke(query)
+            
+    except Exception as e:
+        st.error(f"Error retrieving documents: {str(e)}")
+        return []
 
-        return filtered_docs
-
-    # fallback for non-FAISS retrievers
-    if hasattr(retriever, 'get_relevant_documents'):
-        return retriever.get_relevant_documents(query)
-
-    if hasattr(retriever, 'retrieve'):
-        return retriever.retrieve(query)
-
-    if hasattr(retriever, 'invoke'):
-        return retriever.invoke(query)
-
-    raise RuntimeError("Retriever does not support common retrieval methods.")
+    return []
 
 
 def format_chat_history(chat_history):
@@ -197,18 +381,35 @@ def format_chat_history(chat_history):
     return "\n".join(formatted)
 
 
-def answer_query(documents, model, query, chat_history):
+def answer_query_with_docs(documents, model, query, chat_history):
+    """Answer query using retrieved documents"""
     context = get_context(documents)
     history_text = format_chat_history(chat_history)
-    prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+    prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE_WITH_DOCS)
     chain = prompt | model
-    # Use model.invoke to keep previous behaviour; many LangChain-wrapped LLMs return .content
+    
     out = chain.invoke({
         "question": query,
         "context": context,
         "chat_history": history_text
     })
-    # Some LLM wrappers return the content directly, others wrap it; handle both
+    
+    if hasattr(out, 'content'):
+        return out.content
+    return out
+
+
+def answer_query_direct(model, query, chat_history):
+    """Answer query directly without document retrieval"""
+    history_text = format_chat_history(chat_history)
+    prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE_WITHOUT_DOCS)
+    chain = prompt | model
+    
+    out = chain.invoke({
+        "question": query,
+        "chat_history": history_text
+    })
+    
     if hasattr(out, 'content'):
         return out.content
     return out
@@ -243,14 +444,18 @@ st.markdown(f"""
         margin: 8px 0;
         border-radius: 12px;
         display: flex;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }}
 
-    /* Assistant bubble - full width */
+    /* Assistant bubble - full width with word wrapping */
     .assistant-message {{
         background: rgba(0, 0, 0, 0.5);
         width: 100%;
         justify-content: flex-start;
         margin-bottom: 100px;
+        overflow-wrap: break-word;
+        word-break: break-word;
     }}
 
     /* User bubble - small and right-aligned */
@@ -260,7 +465,19 @@ st.markdown(f"""
         margin-left: auto;     /* pushes it to the right */
         text-align: right;
         float: right;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }}
+    
+    .message-content {{
+        color: #FFFFFF;
+        width: 100%;
+        max-width: 100%;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+    }}
+    
     .math-container {{
         background-color: rgba(64, 65, 79, 0.7);
         border-radius: 8px;
@@ -285,9 +502,6 @@ st.markdown(f"""
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.1);
     }}
-    .message-content {{
-        color: #FFFFFF;
-    }}
     .sidebar .block-container {{
         background: rgba(45, 45, 45, 0.7);
         backdrop-filter: blur(10px);
@@ -309,6 +523,7 @@ st.markdown(f"""
     .chat-message p {{
         margin: 0;
         padding: 0;
+        word-wrap: break-word;
     }}
     .chat-message strong {{
         font-weight: bold;
@@ -323,6 +538,7 @@ st.markdown(f"""
         padding: 2px 4px;
         border-radius: 4px;
         font-family: monospace;
+        word-break: break-all;
     }}
     .has-jax {{
         font-size: 100%;
@@ -446,7 +662,7 @@ st.markdown(f"""
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'vector_db_status' not in st.session_state:
-    st.session_state.vector_db_status = False
+    st.session_state.vector_db_status = os.path.exists(os.path.join(DB_PATH, 'index.faiss'))
 if 'uploaded_pdf_paths' not in st.session_state:
     st.session_state.uploaded_pdf_paths = []
 
@@ -460,6 +676,15 @@ st.markdown(
     """
 )
 
+# st.markdown(
+#     """
+#     <div style="margin-top: -35px; margin-bottom: 20px; margin-left: 10px;">
+#         <h1 style="margin: 0; padding: 0;">🔬 Research GPT</h1>
+#         <p style="margin: 0; padding: 0;"><strong>Upload any PDFs to get started!</strong></p>
+#     </div>
+#     """,
+#     unsafe_allow_html=True
+# )
 # ------------------------------------------------------------------------------
 # SIDEBAR
 with st.sidebar:
@@ -501,9 +726,30 @@ with st.sidebar:
     # Vectorize PDFs Button
     if st.button("🔄 Vectorize PDFs", use_container_width=True):
         with st.status("Processing PDFs...", expanded=True) as status:
-            vector_db.process_pdfs(st.session_state.uploaded_pdf_paths if st.session_state.uploaded_pdf_paths else None)
-            st.session_state.vector_db_status = True
-            status.update(label="PDFs vectorized successfully!", state="complete")
+            try:
+                result = vector_db.process_pdfs(
+                    st.session_state.uploaded_pdf_paths if st.session_state.uploaded_pdf_paths else None
+                )
+                if result is not None:
+                    st.session_state.vector_db_status = True
+                    status.update(label="PDFs vectorized successfully!", state="complete")
+                    st.success(f"✅ Successfully vectorized PDFs!")
+                else:
+                    status.update(label="No PDFs to vectorize!", state="error")
+            except Exception as e:
+                st.error(f"Error during vectorization: {str(e)}")
+                status.update(label="Vectorization failed!", state="error")
+
+    st.markdown("---")
+    
+    # Display vectorization status
+    if vector_db.is_db_loaded():
+        st.success("✅ Vector DB Ready")
+        pdf_count = len(vector_db.get_pdf_files())
+        if pdf_count > 0:
+            st.info(f"📚 {pdf_count} PDF(s) in database")
+    else:
+        st.warning("⚠️ Please vectorize PDFs")
 
     st.markdown("---")
 
@@ -554,28 +800,52 @@ for message in st.session_state.chat_history:
 user_query = st.chat_input("Ask any query...")
 
 if user_query:
-    if os.path.exists(os.path.join(vector_db.db_path, 'index.faiss')):
-        st.session_state.chat_history.append({"role": "user", "content": user_query})
-
-        with st.status("Generating response...", expanded=True) as status:
-            try:
-                retrieved_docs = retrieve_docs(user_query)
-
-                # Generate response with chat history
+    st.session_state.chat_history.append({"role": "user", "content": user_query})
+    
+    with st.status("Processing query...", expanded=True) as status:
+        try:
+            # Step 1: Decide if retrieval is needed
+            status.update(label="🤔 Analyzing query...", state="running")
+            decision = decide_retrieval(user_query, llm)
+            
+            if decision == 'RETRIEVE':
+                # Check if database is loaded
+                if not vector_db.is_db_loaded():
+                    st.error("Documents retrieval needed but no PDFs are vectorized. Please vectorize PDFs first.")
+                    status.update(label="Error: No vector database", state="error")
+                    st.session_state.chat_history.pop()
+                else:
+                    # Step 2: Retrieve documents
+                    status.update(label="📚 Retrieving relevant documents...", state="running")
+                    retrieved_docs = retrieve_docs(user_query)
+                    
+                    if not retrieved_docs:
+                        st.warning("No relevant documents found. Answering without document context.")
+                        status.update(label="⚠️ No documents found, answering directly...", state="running")
+                        previous_history = st.session_state.chat_history[:-1]
+                        response = answer_query_direct(llm, user_query, previous_history)
+                    else:
+                        # Step 3: Generate response with documents
+                        status.update(label="✍️ Generating response with documents...", state="running")
+                        previous_history = st.session_state.chat_history[:-1]
+                        response = answer_query_with_docs(retrieved_docs, llm, user_query, previous_history)
+                    
+                    st.session_state.chat_history.append({"role": "assistant", "content": response})
+                    status.update(label="✅ Response generated with retrieval!", state="complete")
+            
+            else:  # DIRECT
+                # Answer directly without retrieval
+                status.update(label="💬 Generating direct response...", state="running")
                 previous_history = st.session_state.chat_history[:-1]
-                response = answer_query(
-                    documents=retrieved_docs,
-                    model=llm,
-                    query=user_query,
-                    chat_history=previous_history
-                )
+                response = answer_query_direct(llm, user_query, previous_history)
                 st.session_state.chat_history.append({"role": "assistant", "content": response})
+                status.update(label="✅ Response generated!", state="complete")
 
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-                status.update(label="Error generating response", state="error")
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            status.update(label="Error generating response", state="error")
+            # Remove the user query from history since we couldn't process it
+            if st.session_state.chat_history and st.session_state.chat_history[-1]['role'] == 'user':
+                st.session_state.chat_history.pop()
 
-        st.rerun()
-    else:
-        st.error("Please vectorize the PDFs first using the 'Vectorize PDFs' button in the sidebar.")
-
+    st.rerun()
