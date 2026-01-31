@@ -10,10 +10,10 @@ An Open-source, **Interconnected Local server-based GPT assistant** for **maximu
 -  **Cross-Device Access**: Use Tailscale to access the service across devices in your local network
 -  **Multi-Platform**: Full support for PC, mobile, and tablet devices
 -  **Ollama Integration**: Host models locally for complete independence
--  **Model Supports**: **Qwen 32B** , **GPT OSS 120B** , **Kimi K2 Instruct** ,  **LLama 3.3 70B** ,
+-  **Model Supports**: **Qwen 32B** , **GPT OSS 120B** , **Kimi K2 Instruct** ,  **LLama 3.3 70B** , **All Ollama series models**.
 - **Upcoming**: **Tool Integration and Memory**
-   
-### PC Integration
+
+  ### PC Integration
 
 <img width="1909" height="904" alt="Screenshot 2025-11-29 194117-modified" src="https://github.com/user-attachments/assets/e68edb7f-59a2-4cdb-bf9f-d8af60dca062" />
 
