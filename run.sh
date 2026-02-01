@@ -1,15 +1,23 @@
+#!/usr/bin/env bash
+
 echo "🚀 Starting ResearchGPT (Backend + Frontend)"
 
 # -----------------------------
-# Activate Python venv (bash)
+# Resolve project root
 # -----------------------------
-source "/gpt/Scripts/activate"   # or ->>>> "Your_env_name\Scripts\activate"
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# -----------------------------
+# Activate Python venv
+# -----------------------------
+echo "🐍 Activating virtual environment"
+source "$PROJECT_ROOT/gpt/bin/activate"
 
 # -----------------------------
 # Start Backend
 # -----------------------------
 echo "⚙️ Starting Backend (FastAPI)"
-cd "/backend"
+cd "$PROJECT_ROOT/backend" || exit 1
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 
@@ -17,7 +25,7 @@ BACKEND_PID=$!
 # Start Frontend
 # -----------------------------
 echo "🌐 Starting Frontend"
-cd "/frontend"
+cd "$PROJECT_ROOT/frontend" || exit 1
 python -m http.server 5173 &
 FRONTEND_PID=$!
 
