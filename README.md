@@ -59,16 +59,6 @@ Open terminal inside the folder, and run these commands one after another(Inside
 git clone https://github.com/t-majumder/GPT-Unplugged.git
 cd GPT-Unplugged
 python -m venv gpt
-```
-
-```bash
-# choose based on your system
-
-gpt\Scripts\activate      # For Windows run this
-source gpt/bin/activate   # For Linux run this
-```
-
-```bash
 pip install -r requirements.txt
 ```
 #### Close everything. Installation is done.
@@ -85,13 +75,13 @@ GPT-Unplugged/
 # 🎯Running the project:
 1) Go to the GPT-Unplugged folder.
 2) Open terminal inside the folder and run this command based on Windows or Linux.
-#### For Windows:
+#### Finally Run:
 ```bash
 run run.ps1
 ```
-#### For Linux:
+or
 ```bash
-run run.sh
+bash run.sh
 ```
 
 Now you can access the website from your browser. (copy-paste this link inside your browser)
