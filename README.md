@@ -1,80 +1,115 @@
-# Research_gpt
-<img width="1584" height="396" alt="Untitled design (1)-modified" src="https://github.com/user-attachments/assets/5edb7f80-085a-455f-b06e-c6574c8f9d68" />
+<p align="center">
+  <img src="frontend/images/Logo.png" alt="Theme" width="600">
 
-An Open-source, **Interconnected Local server-based GPT assistant** for **maximum privacy**. **Giving you the ultimate control of your data**.
+<!-- stars and logos -->
+
+<p align="center">
+  <a href="https://github.com/t-majumder/GPT-Unplugged/stargazers">
+    <img src="https://img.shields.io/github/stars/t-majumder/GPT-Unplugged?style=plastic&logo=github&logoColor=white" alt="GitHub stars">
+  </a>
+
+  <a href="https://x.com/dextro_rx">
+    <img src="https://img.shields.io/badge/X-@dextro_rx-black?style=plastic&logo=x&logoColor=white" alt="X">
+  </a>
+
+  <a href="https://scholar.google.com/citations?user=7jXnxCkAAAAJ&hl=en">
+    <img src="https://img.shields.io/badge/Scholar-Profile-4285F4?style=plastic&logo=google-scholar&logoColor=white" alt="Website">
+  </a>
+
+  <a href="https://github.com/t-majumder/GPT-Unplugged/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-green?style=plastic&logo=open-source-initiative&logoColor=white" alt="MIT License">
+  </a>
+</p>
+
+<!-- writeup -->
+<p align="center">
+  <strong>👋🏻 Hi everyone! GPT Unplugged🔌 an interconnected, local server-based, fully customizable, privacy-focused research agent.</strong><br>
+  <strong>Giving you the ultimate control of your data and conversations.</strong>
+</p>
+
+<!-- customization image -->
+<p align="center">
+  <img src="/images/theme_selection.png" alt="Theme" width="800">
+</p>
+
+**Scenario 1:** Tomorrow if there is **No internet access** this can be your **Local personal assistant** with new knowledge. Feed it your documents or books or pdfs and keep the conversation rolling. It has **cross model memory** so none of your previous chat or context is lost in between. Switch moel and keep the conversation rolling.
+\
+\
+**Scenario 2:** In your local network just run on one machine and use in all devices. Alll device under same **WIFI** network. So basically your personal bot whom you have deep conversations with when youre sleepy or in bed... \
+**(Watch the movie 'HER' you'll get the reference...)**
+
 
 ## ✨ Features
-
 -  **Complete Privacy**: All data stays local on your machine
--  **Integrated Free Grok API**: No subscription required
 -  **Cross-Device Access**: Use Tailscale to access the service across devices in your local network
 -  **Multi-Platform**: Full support for PC, mobile, and tablet devices
--  **Ollama Integration**: Host models locally for complete independence
--  **Model Supports**: **Qwen 32B** , **GPT OSS 120B** , **Kimi K2 Instruct** ,  **LLama 3.3 70B** , **All Ollama series models**.
-- **Upcoming**: **Tool Integration and Memory**
+-  **Ollama Integration**: Host models locally for complete independence (Local inference for full independence)
+-  **Model Supports**: **Qwen 32B** , **GPT OSS 20B** ,**GPT OSS 120B**, **Kimi K2 Instruct** ,  **LLama 3.3 70B** , **All Ollama Models**.
+-  **Supports Multiturn, Long context memory, Rag, rerankers...**
 
-  ### PC Integration
+# 📦 Installation
+## Step 1️: Installing it. (One-time thing)
+Create a new folder where you want everything to be stored. 
+Open terminal inside the folder, and run these commands one after another(Inside the same terminal):
+```bash
+git clone https://github.com/t-majumder/GPT-Unplugged.git
+cd GPT-Unplugged
+python -m venv gpt
+```
 
-<img width="1909" height="904" alt="Screenshot 2025-11-29 194117-modified" src="https://github.com/user-attachments/assets/e68edb7f-59a2-4cdb-bf9f-d8af60dca062" />
+```bash
+# choose based on your system
+
+gpt\Scripts\activate      # For Windows run this
+source gpt/bin/activate   # For Linux run this
+```
+
+```bash
+pip install -r requirements.txt
+```
+#### Close everything. Installation is done.
+
+## Step 2: Setting the free API key (After this technical stuff is done)
+-> Go to the Groq website : https://console.groq.com/keys  (Get your free API key here) \
+-> Paste your API key here. Go to -> 
+```bash
+GPT-Unplugged/
+├── backend/
+│   ├── .env    # Paste your GROQ API key here
+```
+
+# 🎯Running the project:
+1) Go to the GPT-Unplugged folder.
+2) Open terminal inside the folder and run this command based on Windows or Linux.
+#### For Windows:
+```bash
+run run.ps1
+```
+#### For Linux:
+```bash
+run run.sh
+```
+
+Now you can access the website from your browser. (copy-paste this link inside your browser)
+```bash
+http://localhost:5173/
+```
+<p align="center">
+  <img src="/images/interface.png" alt="Theme" width="1000">
+</p>
+
+
+## Usage
+<p align="center">
+  <img src="/images/demo.png" alt="Theme" width="600">
+</p>
 
 ### Mobile and tab integration
-<div style="width: 100%; display: flex; justify-content: space-between; align-items: center;">
-  <img src="https://github.com/user-attachments/assets/56132c4e-061f-4f1b-8804-bb6e3125e62f" style="height: 370px; flex: 1; object-fit: contain;">
-  <img src="https://github.com/user-attachments/assets/68989f8f-2dfb-4051-80ab-5c9ad90956b2" style="height: 370px; flex: 1; object-fit: contain;">
-</div>
 
-## 📦 Installation
 
-### Prerequisites
 
-- Docker installed on your system
-- A Grok API account (free)
-
-### Step 1: Get Your Groq API Key
-
-1. Create a Grok account at [Groq AI]([https://grok.x.ai](https://console.groq.com/keys))
-2. Generate your API key from the dashboard
-
-### Step 2: Configure Environment Variables
-
-Create a `.env` file in the project root directory and add your API key:
-
-```env
-GROK_API_KEY="your_api_key_here"
-```
-
-### Step 3: Build Docker Image
-
-Open command prompt/terminal in the project folder and run:
-
-```bash
-docker build -t research_gpt .
-```
-
-## 🎯 Usage
-
-### Running the Application
-
-Start the application using Docker:
-
-```bash
-docker run -p 8000:8000 research_gpt
-```
-<img width="1269" height="717" alt="Screenshot 2025-11-29 180152-modified" src="https://github.com/user-attachments/assets/ac594b25-5efa-4723-926b-248d214e3597" />
-
-### Accessing the Interface
-
-Open your browser and navigate to:
-
-```
-http://localhost:8000
-```
-
-That's it! You're ready to use Research_gpt.
 ### Sample Outputs
-<img width="1914" height="874" alt="Screenshot 2025-11-29 194854-modified" src="https://github.com/user-attachments/assets/4afea833-30e2-470e-8269-af81d153e232" />
 
-<img width="1912" height="905" alt="Screenshot 2025-11-29 194917-modified" src="https://github.com/user-attachments/assets/01f619b3-ac06-45c9-aea2-9076b372a2fc" />
 
 ## 🔧 Advanced Configuration
 
